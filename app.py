@@ -1,4 +1,5 @@
 import html
+import json
 
 import streamlit as st
 import pandas as pd
@@ -225,14 +226,115 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+REQUIRED_SA_KEYS = ["type", "project_id", "private_key", "client_email", "token_uri"]
+SECRETS_WHERE = "本機：`.streamlit/secrets.toml`；Streamlit Cloud：App 的 ⋮ → Settings → Secrets"
+
+
+class SetupError(Exception):
+    """連線設定錯誤：title 為錯誤摘要，hint 為給使用者的解決方式（不含任何密鑰內容）。"""
+
+    def __init__(self, title: str, hint: str):
+        super().__init__(title)
+        self.title = title
+        self.hint = hint
+
+
+def _secret(key: str):
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        # 完全沒有 secrets（本機無 secrets.toml、雲端未設定 Secrets）時，存取 st.secrets 會直接拋錯
+        raise SetupError("找不到任何 Secrets 設定", f"請在 {SECRETS_WHERE} 貼上 `[sheet]` 與 `[gcp_service_account]` 兩個區塊。")
+
+
+def fix_private_key(pk: str) -> str:
+    """自動修正私鑰常見的貼上錯誤：\\n 被多跳脫、缺少開頭／結尾標記。"""
+    pk = pk.strip().strip('"').strip()
+    if "\\n" in pk and "\n" not in pk:
+        pk = pk.replace("\\n", "\n")
+    begin, end = "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"
+    if begin not in pk:
+        pk = begin + "\n" + pk.lstrip("\n")
+    if end not in pk:
+        pk = pk.rstrip("\n") + "\n" + end
+    return pk.rstrip("\n") + "\n"
+
+
+def load_service_account_info() -> dict:
+    raw = _secret("gcp_service_account")
+    if raw is None:
+        raise SetupError(
+            "Secrets 中找不到 [gcp_service_account] 區塊",
+            f"請在 {SECRETS_WHERE} 加入以 `[gcp_service_account]` 開頭的服務帳號憑證（標題名稱需一字不差）。",
+        )
+    if isinstance(raw, str):
+        # 支援把整份服務帳號 JSON 直接貼成一個字串
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise SetupError("[gcp_service_account] 不是有效的格式", "請改用 `key = \"value\"` 的 TOML 格式，或貼上完整的服務帳號 JSON。")
+    info = {k: v for k, v in dict(raw).items()}
+    missing = [k for k in REQUIRED_SA_KEYS if not str(info.get(k, "")).strip()]
+    if missing:
+        raise SetupError(
+            "[gcp_service_account] 缺少必要欄位：" + "、".join(missing),
+            "請確認服務帳號憑證有完整貼上（從 `type` 到 `client_x509_cert_url` 的每一行）。",
+        )
+    info["private_key"] = fix_private_key(str(info["private_key"]))
+    return info
+
+
+def load_sheet_name() -> str:
+    sheet_cfg = _secret("sheet")
+    name = sheet_cfg.get("sheet_name") if hasattr(sheet_cfg, "get") else None
+    # 也接受把 sheet_name 寫在最外層
+    name = name or _secret("sheet_name")
+    if not str(name or "").strip():
+        raise SetupError(
+            "Secrets 中找不到試算表名稱 sheet_name",
+            "請加入以下兩行：\n\n```toml\n[sheet]\nsheet_name = \"信眾名冊\"\n```",
+        )
+    return str(name).strip()
+
+
+# 只快取成功的連線：拋出例外時 st.cache_resource 不會記住，修好 Secrets 後重新整理頁面即可重連
 @st.cache_resource
 def init_connection():
+    info = load_service_account_info()
+    sheet_name = load_sheet_name()
+    email = info["client_email"]
     try:
-        creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=SCOPES)
-        client = gspread.authorize(creds)
-        return client.open(st.secrets["sheet"]["sheet_name"]).sheet1
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     except Exception:
-        return None
+        raise SetupError(
+            "服務帳號私鑰（private_key）無法載入",
+            "請確認 `private_key` 整段放在同一對雙引號內，以 `-----BEGIN PRIVATE KEY-----` 開頭、"
+            "`-----END PRIVATE KEY-----` 結尾，中間的換行寫成 `\\n`。",
+        )
+    try:
+        return gspread.authorize(creds).open(sheet_name).sheet1
+    except gspread.exceptions.SpreadsheetNotFound:
+        raise SetupError(
+            f"找不到名為「{sheet_name}」的試算表",
+            f"請確認：\n1. 試算表檔名與 `sheet_name` 完全相同（含空白）。\n"
+            f"2. 已在 Google Sheets 按「共用」，把以下服務帳號加為「編輯者」：\n\n`{email}`",
+        )
+    except gspread.exceptions.APIError as e:
+        msg = str(e)
+        if "has not been used" in msg or "is disabled" in msg or "SERVICE_DISABLED" in msg:
+            raise SetupError(
+                "Google Drive / Sheets API 尚未啟用",
+                f"請到 Google Cloud Console 為專案 `{info['project_id']}` 啟用「Google Drive API」與「Google Sheets API」，"
+                f"等 1～2 分鐘後重新整理。\n\nGoogle 原始訊息：{msg[:300]}",
+            )
+        raise SetupError("Google 拒絕存取試算表", f"請確認試算表已分享給 `{email}`（編輯者）。\n\nGoogle 原始訊息：{msg[:300]}")
+    except Exception as e:
+        if "invalid_grant" in str(e) or "Invalid JWT" in str(e):
+            raise SetupError(
+                "服務帳號驗證失敗（invalid_grant）",
+                "可能是私鑰已被刪除或停用、或電腦時間不準。請到 Google Cloud Console 確認此金鑰仍有效，必要時重新建立金鑰並更新 Secrets。",
+            )
+        raise SetupError("連線 Google Sheets 失敗", f"錯誤類型：{type(e).__name__}\n\n{str(e)[:300]}")
 
 
 def load_data(sheet) -> pd.DataFrame:
@@ -456,9 +558,12 @@ col_title.markdown("<p class='app-title'>📋 客戶資料查詢與管理系統<
 if col_refresh.button("🔄 重新整理", width="stretch"):
     st.rerun()
 
-sheet = init_connection()
-if sheet is None:
-    st.warning("⚠️ 尚未設定 Google Sheets 連線憑證，請於 Streamlit Secrets 設定 gcp_service_account 與 sheet.sheet_name。")
+try:
+    sheet = init_connection()
+except SetupError as err:
+    st.error(f"⚠️ 無法連線 Google Sheets：{err.title}")
+    st.markdown(err.hint)
+    st.caption("修正 Secrets 並存檔後，按「🔄 重新整理」即可重新連線。")
     st.stop()
 
 if "flash" in st.session_state:
