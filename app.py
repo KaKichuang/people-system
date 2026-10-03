@@ -12,7 +12,8 @@ from google.oauth2.service_account import Credentials
 COLUMNS = ["姓名", "電話", "地址", "備註"]
 PAGE_SIZE = 10
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-APP_TITLE = "資料查詢"
+# 瀏覽器分頁標題與「加入主畫面」時的預設名稱（畫面上方的大標題另外寫在標題列）
+APP_TITLE = "信眾查詢系統"
 BASE_DIR = Path(__file__).parent
 
 st.set_page_config(
@@ -113,8 +114,8 @@ st.markdown("""
     }
     /* 加上 !important：Streamlit 的 markdown 段落樣式優先權較高，否則字體設定不會生效 */
     [data-testid="stMarkdownContainer"] p.app-title, .app-title {
-        /* 依螢幕寬度自動縮放：手機約 36px、iPad 約 50px、電腦最大 64px */
-        font-size: clamp(36px, 6vw, 64px) !important;
+        /* 依螢幕寬度自動縮放：手機約 26px、iPad 約 30px、電腦最大 40px */
+        font-size: clamp(26px, 3.6vw, 40px) !important;
         font-weight: 700 !important;
         color: #5A4A35;
         margin: 0 !important;
