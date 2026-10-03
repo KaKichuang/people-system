@@ -1,5 +1,6 @@
 import html
 import json
+import unicodedata
 
 import streamlit as st
 import pandas as pd
@@ -337,24 +338,61 @@ def init_connection():
         raise SetupError("連線 Google Sheets 失敗", f"錯誤類型：{type(e).__name__}\n\n{str(e)[:300]}")
 
 
+def header_positions(header: list) -> dict:
+    """標題名稱 → 欄位位置；比對時忽略前後空白與全形／半形差異（例如「姓名 」也視為「姓名」）。"""
+    cleaned = [unicodedata.normalize("NFKC", str(h)).strip() for h in header]
+    return {name: cleaned.index(name) for name in COLUMNS if name in cleaned}
+
+
 def load_data(sheet) -> pd.DataFrame:
     """讀取整張表；DataFrame 的 index 即為該筆資料在試算表中的實際列號（標題列為第 1 列）。"""
     try:
         # get_all_values 一律回傳字串，電話 0912… 不會被轉成數字而遺失開頭 0
         values = sheet.get_all_values()
     except Exception as e:
-        st.error(f"讀取 Google Sheets 資料失敗: {e}")
-        values = []
-    header = values[0] if values else []
-    pos = {name: header.index(name) for name in COLUMNS if name in header}
+        raise SetupError("讀取試算表資料失敗", f"錯誤類型：{type(e).__name__}\n\n{str(e)[:300]}")
+    title = getattr(sheet, "title", "第一個分頁")
+    if not values:
+        raise SetupError(f"已連線，但試算表的「{title}」分頁是空的", "程式讀取的是試算表的**第一個分頁**，請確認資料放在最左邊的分頁。")
+    header = values[0]
+    pos = header_positions(header)
+    if "姓名" not in pos:
+        found = "、".join(h for h in header if str(h).strip()) or "（空白）"
+        raise SetupError(
+            f"「{title}」分頁的第一列找不到「姓名」欄",
+            f"第一列必須是標題：**姓名、電話、地址、備註**。\n\n目前讀到的第一列是：{found}\n\n"
+            "若資料在其他分頁，請把它移到最左邊。",
+        )
     records, row_numbers = [], []
     for sheet_row, cells in enumerate(values[1:], start=2):
         if not any(c.strip() for c in cells):
             continue
         records.append({name: (cells[pos[name]] if name in pos and pos[name] < len(cells) else "") for name in COLUMNS})
         row_numbers.append(sheet_row)
+    if not records:
+        raise SetupError(f"已連線，但「{title}」分頁只有標題列、沒有任何資料", "請確認資料放在試算表最左邊的分頁。")
     st.session_state["header"] = header
     return pd.DataFrame(records, columns=COLUMNS, index=row_numbers).fillna("").astype(str)
+
+
+def norm_text(value: str) -> str:
+    """搜尋用正規化：全形→半形、英文不分大小寫、忽略所有空白。"""
+    return "".join(unicodedata.normalize("NFKC", str(value)).lower().split())
+
+
+def only_digits(value: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKC", str(value)) if ch.isdigit())
+
+
+def search_mask(df: pd.DataFrame, query: str) -> pd.Series:
+    q = norm_text(query)
+    mask = df.apply(lambda col: col.map(norm_text).str.contains(q, regex=False)).any(axis=1)
+    # 輸入的是電話號碼（只有數字與 - 空白 括號 +）：電話比對時忽略分隔符號
+    if q and all(ch.isdigit() or ch in "-()+" for ch in q):
+        digits = only_digits(q)
+        if digits:
+            mask |= df["電話"].map(only_digits).str.contains(digits, regex=False)
+    return mask
 
 
 def esc(value) -> str:
@@ -394,7 +432,7 @@ def card_body_html(row, others: pd.DataFrame) -> str:
 def save_row(sheet, sheet_row: int, original: dict, updated: dict) -> str | None:
     """只更新試算表中的那一列；寫入前先確認該列仍是原資料，避免改到別人剛改過或已錯位的列。回傳錯誤訊息或 None。"""
     header = st.session_state.get("header", [])
-    pos = {name: header.index(name) for name in COLUMNS if name in header}
+    pos = header_positions(header)
     width = max(len(header), 1)
     current = sheet.row_values(sheet_row)
     current = current + [""] * (width - len(current))
@@ -496,7 +534,7 @@ def render_search(sheet, df: pd.DataFrame) -> None:
     if not query:
         return
 
-    mask = df.apply(lambda col: col.str.lower().str.contains(query, regex=False)).any(axis=1)
+    mask = search_mask(df, query)
     result = df[mask]
     if result.empty:
         st.info("沒有找到符合的客戶資料。")
@@ -560,8 +598,9 @@ if col_refresh.button("🔄 重新整理", width="stretch"):
 
 try:
     sheet = init_connection()
+    data = load_data(sheet)
 except SetupError as err:
-    st.error(f"⚠️ 無法連線 Google Sheets：{err.title}")
+    st.error(f"⚠️ Google Sheets 設定有問題：{err.title}")
     st.markdown(err.hint)
     st.caption("修正 Secrets 並存檔後，按「🔄 重新整理」即可重新連線。")
     st.stop()
@@ -569,4 +608,4 @@ except SetupError as err:
 if "flash" in st.session_state:
     st.toast(st.session_state.pop("flash"), icon="✅")
 
-render_search(sheet, load_data(sheet))
+render_search(sheet, data)
