@@ -354,16 +354,28 @@ st.markdown("""
         align-items: center;
     }
     .st-key-floatview [data-testid="stColumn"] { min-width: 0 !important; }
-    .st-key-floatview [data-testid="stColumn"]:last-child {
+    /* 標題列：✕ 依內容寬度靠右；底部按鈕列則兩顆等寬 */
+    .st-key-float_header [data-testid="stColumn"]:last-child {
         flex: 0 0 auto !important;
         width: auto !important;
     }
+    .st-key-float_actions [data-testid="stColumn"] {
+        flex: 1 1 0 !important;
+        width: auto !important;
+    }
+    /* 右上角 ✕：無外框、無背景，只留符號；點擊範圍維持 48px */
     .st-key-float_close button {
         min-height: 48px;
         min-width: 48px;
-        padding: 4px 12px;
+        padding: 0 !important;
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #5A4A35 !important;
         border-radius: 12px;
     }
+    .st-key-float_close button p { font-size: 26px !important; }
+    .st-key-float_close button:hover { background: #F7F2EA !important; }
     .float-handle {
         cursor: grab;
         touch-action: none;      /* 觸控拖曳時不要捲動畫面 */
@@ -844,7 +856,8 @@ def _close_viewer() -> None:
 def render_viewer(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
     """放大檢視：可拖曳的浮動視窗（不遮住背後畫面，可邊看邊捲動、點其他卡片直接換一筆）。"""
     with st.container(key="floatview"):
-        col_name, col_close = st.columns([5, 1], vertical_alignment="center")
+        with st.container(key="float_header"):
+            col_name, col_close = st.columns([5, 1], vertical_alignment="center")
         col_name.markdown(
             f"<div class='float-handle'><div class='float-grip'>⠿ 按住此列可拖曳</div>"
             f"<div class='detail-name'>👤 {esc(row['姓名'])}</div></div>",
@@ -873,8 +886,11 @@ def render_detail(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
                    f"{items}</div>")
     st.markdown(f"<div class='detail'>{body}{related}</div>", unsafe_allow_html=True)
     # 用 on_click 回呼：在本次重繪前就切換狀態，浮動視窗關閉、編輯對話框同一次打開
-    st.button("✏️ 編輯這筆", key="view_to_edit", type="primary", width="stretch",
-              on_click=open_dialog, args=("editing", {"row": sheet_row, "original": row}))
+    with st.container(key="float_actions"):
+        col_edit, col_close = st.columns(2)
+    col_edit.button("✏️ 編輯這筆", key="view_to_edit", type="primary", width="stretch",
+                    on_click=open_dialog, args=("editing", {"row": sheet_row, "original": row}))
+    col_close.button("✕ 關閉", key="view_close", width="stretch", on_click=_close_viewer)
 
 
 def _shift_page(delta: int) -> None:
