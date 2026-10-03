@@ -13,7 +13,7 @@ COLUMNS = ["姓名", "電話", "地址", "備註"]
 PAGE_SIZE = 10
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 # 瀏覽器分頁標題與「加入主畫面」時的預設名稱（畫面上方的大標題另外寫在標題列）
-APP_TITLE = "信眾查詢系統"
+APP_TITLE = "信眾查詢"
 BASE_DIR = Path(__file__).parent
 
 st.set_page_config(

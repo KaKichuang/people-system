@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>信眾查詢</title>
+
+  <!-- 加入主畫面時的名稱與圖示（iOS 讀 apple-*，Android 讀 manifest） -->
+  <meta name="apple-mobile-web-app-title" content="信眾查詢">
+  <meta name="application-name" content="信眾查詢">
+  <meta name="theme-color" content="#FAF8F5">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="robots" content="noindex, nofollow">
+
+  <script>
+    // 從主畫面圖示開啟時，網址會帶 ?go=1 → 直接轉到查詢系統。
+    // 一般瀏覽器打開時先停在本頁（方便加入主畫面），並把網址改成帶 ?go=1，讓加入主畫面時存下的是會自動轉址的網址。
+    var TARGET = "https://people-kaki.streamlit.app/";
+    var params = new URLSearchParams(location.search);
+    if (params.get("go") === "1") {
+      location.replace(TARGET);
+    } else {
+      history.replaceState(null, "", location.pathname + "?go=1");
+    }
+  </script>
+
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #FAF8F5;
+      color: #3F3A33;
+      font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    }
+    main {
+      width: 100%;
+      max-width: 420px;
+      background: #FFFFFF;
+      border: 1px solid #E6E0D5;
+      border-radius: 20px;
+      box-shadow: 0 3px 12px rgba(90, 74, 53, 0.08);
+      padding: 28px 22px;
+      text-align: center;
+    }
+    img.logo { width: 120px; height: 120px; border-radius: 24px; }
+    h1 { font-size: 28px; color: #5A4A35; margin: 14px 0 22px; letter-spacing: 0.06em; }
+    a.go {
+      display: block;
+      background: #8A6D3B;
+      color: #FFFFFF;
+      text-decoration: none;
+      font-size: 21px;
+      font-weight: 700;
+      padding: 16px;
+      border-radius: 14px;
+    }
+    .howto {
+      margin-top: 24px;
+      text-align: left;
+      font-size: 16px;
+      line-height: 1.7;
+      color: #6B5E4B;
+      background: #F7F2EA;
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .howto b { color: #5A4A35; }
+  </style>
+</head>
+<body>
+  <main>
+    <img class="logo" src="apple-touch-icon.png" alt="土地公">
+    <h1>信眾查詢</h1>
+    <a class="go" href="https://people-kaki.streamlit.app/">進入信眾查詢</a>
+    <div class="howto">
+      <b>加入主畫面，下次一點就開：</b><br>
+      iPhone／iPad（Safari）：點「分享」→「加入主畫面」→「新增」<br>
+      Android（Chrome）：點右上「⋮」→「加到主畫面」
+    </div>
+  </main>
+</body>
+</html>
