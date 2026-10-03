@@ -289,13 +289,15 @@ st.markdown("""
     }
 
     /* ── 放大檢視（彈出視窗）：大字體、標籤在上、內容在下 ── */
+    /* 只隱藏放大檢視視窗的標題列（「詳細資料」），保留右上角 ✕；編輯／新增視窗的標題不受影響 */
+    [role="dialog"]:has(.detail) h2 { display: none !important; }
     .detail { display: flex; flex-direction: column; gap: 18px; }
     .detail-name {
         font-size: clamp(28px, 5vw, 38px);
         font-weight: 700;
         color: #5A4A35;
         line-height: 1.3;
-        padding-bottom: 12px;
+        padding: 8px 40px 12px 0;   /* 右側讓出空間給 ✕，長姓名不會壓到 */
         border-bottom: 2px solid #EFE8DC;
         overflow-wrap: anywhere;
     }
