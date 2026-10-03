@@ -1,6 +1,7 @@
 import html
 import json
 import unicodedata
+from pathlib import Path
 
 import streamlit as st
 import pandas as pd
@@ -11,13 +12,47 @@ from google.oauth2.service_account import Credentials
 COLUMNS = ["姓名", "電話", "地址", "備註"]
 PAGE_SIZE = 10
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+APP_TITLE = "資料查詢"
+BASE_DIR = Path(__file__).parent
 
 st.set_page_config(
-    page_title="資料查詢",
-    page_icon="📋",
+    page_title=APP_TITLE,
+    page_icon=str(BASE_DIR / "favicon.png"),
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# 加入主畫面用的圖示：Streamlit 無法直接改 <head>，改以腳本把 apple-touch-icon 等標籤補進頁面
+# （圖示檔在 static/，需 .streamlit/config.toml 開啟 enableStaticServing，網址為 app/static/...）。
+# Streamlit Cloud 會把 App 包在同網域的外框頁裡，所以同時嘗試補進最外層頁面。
+st.html(f"""
+<script>
+(function () {{
+  const base = new URL("app/static/", window.location.href).href;
+  const tags = [
+    ["link", {{rel: "apple-touch-icon", sizes: "180x180", href: base + "apple-touch-icon.png"}}],
+    ["link", {{rel: "icon", type: "image/png", sizes: "192x192", href: base + "icon-192.png"}}],
+    ["link", {{rel: "icon", type: "image/png", sizes: "512x512", href: base + "icon-512.png"}}],
+    ["meta", {{name: "apple-mobile-web-app-title", content: {json.dumps(APP_TITLE)}}}],
+    ["meta", {{name: "application-name", content: {json.dumps(APP_TITLE)}}}],
+    ["meta", {{name: "apple-mobile-web-app-capable", content: "yes"}}],
+    ["meta", {{name: "mobile-web-app-capable", content: "yes"}}],
+    ["meta", {{name: "theme-color", content: "#FAF8F5"}}],
+  ];
+  function inject(doc) {{
+    if (!doc || !doc.head || doc.head.querySelector("[data-people-icon]")) return;
+    for (const [tag, attrs] of tags) {{
+      const el = doc.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      el.setAttribute("data-people-icon", "1");
+      doc.head.appendChild(el);
+    }}
+  }}
+  inject(document);
+  try {{ inject(window.top.document); }} catch (e) {{ /* 外框頁不同網域時無法存取，略過 */ }}
+}})();
+</script>
+""", unsafe_allow_javascript=True)
 
 st.markdown("""
 <style>
@@ -76,13 +111,14 @@ st.markdown("""
         font-weight: 600;
         color: #5A4A35;
     }
-    .app-title {
+    /* 加上 !important：Streamlit 的 markdown 段落樣式優先權較高，否則字體設定不會生效 */
+    [data-testid="stMarkdownContainer"] p.app-title, .app-title {
         /* 依螢幕寬度自動縮放：手機約 36px、iPad 約 50px、電腦最大 64px */
-        font-size: clamp(36px, 6vw, 64px);
-        font-weight: 700;
+        font-size: clamp(36px, 6vw, 64px) !important;
+        font-weight: 700 !important;
         color: #5A4A35;
-        margin: 0;
-        line-height: 1.25;
+        margin: 0 !important;
+        line-height: 1.25 !important;
         letter-spacing: 0.08em;
     }
 
@@ -126,7 +162,7 @@ st.markdown("""
         border: 1px solid #E6E0D5;
         border-radius: 16px;
         /* 卡片內距隨螢幕寬度縮放 */
-        padding: clamp(14px, 1.8vw, 20px) clamp(16px, 2vw, 22px);
+        padding: clamp(14px, 1.8vw, 20px) clamp(16px, 2vw, 22px) clamp(18px, 2.2vw, 24px);
         box-shadow: 0 2px 8px rgba(90, 74, 53, 0.07);
         gap: 8px;
         height: 100%;
@@ -214,6 +250,89 @@ st.markdown("""
         border-top: 1px dashed #E0D6C8;
     }
     .related-item:first-of-type { border-top: none; }
+
+    /* ── 點卡片放大：透明按鈕鋪滿整張卡片；編輯按鈕與電話連結放在上層，仍可各自點擊 ── */
+    [class*="st-key-card_"] {
+        position: relative;
+        cursor: pointer;
+        transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    [class*="st-key-card_"]:hover {
+        border-color: #C8B79E;
+        box-shadow: 0 4px 14px rgba(90, 74, 53, 0.14);
+    }
+    [class*="st-key-cardopen_"] {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        z-index: 1;
+        margin: 0 !important;
+    }
+    [class*="st-key-cardopen_"] > div, [class*="st-key-cardopen_"] .stButton, [class*="st-key-cardopen_"] button {
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+    }
+    [class*="st-key-cardopen_"] button {
+        opacity: 0;
+        padding: 0 !important;
+        border: none !important;
+        cursor: pointer;
+    }
+    [class*="st-key-edit_"], .card a, .related a {
+        position: relative;
+        z-index: 2;
+    }
+
+    /* ── 放大檢視（彈出視窗）：大字體、標籤在上、內容在下 ── */
+    .detail { display: flex; flex-direction: column; gap: 18px; }
+    .detail-name {
+        font-size: clamp(28px, 5vw, 38px);
+        font-weight: 700;
+        color: #5A4A35;
+        line-height: 1.3;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #EFE8DC;
+        overflow-wrap: anywhere;
+    }
+    .detail-field { display: flex; flex-direction: column; gap: 4px; }
+    .detail-label {
+        font-size: clamp(16px, 2.6vw, 19px);
+        font-weight: 600;
+        color: #8A7A63;
+    }
+    .detail-value {
+        font-size: clamp(22px, 4vw, 28px);
+        line-height: 1.5;
+        color: #3F3A33;
+        overflow-wrap: anywhere;
+    }
+    .detail-value a, .detail-related a {
+        color: #3F3A33;
+        text-decoration: none;
+        border-bottom: 2px dashed #C8B79E;
+    }
+    .detail-related {
+        background: #F7F2EA;
+        border-left: 5px solid #C8B79E;
+        border-radius: 12px;
+        padding: 14px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .detail-related-item {
+        font-size: clamp(18px, 3vw, 22px);
+        line-height: 1.5;
+        color: #5A4A35;
+        padding-top: 8px;
+        border-top: 1px dashed #E0D6C8;
+        overflow-wrap: anywhere;
+    }
+    .detail-related-note { font-size: 0.85em; color: #8A7A63; }
 
     /* ── 分頁列：上一頁｜頁碼選單｜下一頁，任何寬度都維持同一列 ── */
     .st-key-pager {
@@ -563,8 +682,7 @@ def render_search(sheet, df: pd.DataFrame) -> None:
         st.button("🔍 搜尋", width="stretch")
     with col_add:
         if st.button("➕ 新增", key="open_add", width="stretch"):
-            st.session_state.pop("editing", None)
-            st.session_state["adding"] = True
+            open_dialog("adding", True)
 
     # 同一時間只能開一個對話框
     if st.session_state.get("adding"):
@@ -598,16 +716,67 @@ def render_search(sheet, df: pd.DataFrame) -> None:
                 col_name, col_edit = st.columns([4, 1], vertical_alignment="center")
                 col_name.markdown(f"<div class='card-title'>👤 {esc(row['姓名'])}</div>", unsafe_allow_html=True)
                 if col_edit.button("✏️ 編輯", key=f"edit_{sheet_row}", width="stretch"):
-                    st.session_state.pop("adding", None)
-                    st.session_state["editing"] = {"row": sheet_row, "original": row.to_dict()}
+                    open_dialog("editing", {"row": sheet_row, "original": row.to_dict()})
                 st.markdown(card_body_html(row, others), unsafe_allow_html=True)
+                # 覆蓋整張卡片、看不見的點擊區：點卡片任何地方就放大檢視（編輯按鈕與電話連結疊在它上層，仍可單獨點）
+                if st.button("放大檢視", key=f"cardopen_{sheet_row}", width="stretch"):
+                    open_dialog("viewing", sheet_row)
 
     if pages > 1:
         render_pager(pages)
 
+    # 同一時間只開一個對話框
+    viewing = st.session_state.get("viewing")
     editing = st.session_state.get("editing")
-    if editing and not st.session_state.get("adding"):
+    if viewing is not None and viewing in df.index:
+        key = addr_key[viewing]
+        others = df[(addr_key == key) & (df.index != viewing)] if key else df.iloc[0:0]
+        view_dialog(viewing, df.loc[viewing].to_dict(), others)
+    elif editing and not st.session_state.get("adding"):
         edit_dialog(sheet, editing["row"], editing["original"])
+
+
+DIALOG_KEYS = ("adding", "editing", "viewing")
+
+
+def open_dialog(name: str, value) -> None:
+    """開啟某個對話框前先清掉其他對話框的狀態，確保畫面上只會有一個。"""
+    for k in DIALOG_KEYS:
+        st.session_state.pop(k, None)
+    st.session_state[name] = value
+
+
+def _close_viewer() -> None:
+    st.session_state.pop("viewing", None)
+
+
+@st.dialog("📇 詳細資料", width="large", on_dismiss=_close_viewer)
+def view_dialog(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
+    fields = [("📞 電話", phone_html(row["電話"])), ("📍 地址", esc(row["地址"])), ("📝 備註", esc(row["備註"]))]
+    body = "".join(
+        f"<div class='detail-field'><div class='detail-label'>{label}</div>"
+        f"<div class='detail-value'>{value or '—'}</div></div>"
+        for label, value in fields
+    )
+    related = ""
+    if not others.empty:
+        items = "".join(
+            f"<div class='detail-related-item'><b>{esc(o['姓名'])}</b>　{phone_html(o['電話'])}"
+            + (f"<div class='detail-related-note'>{esc(o['備註'])}</div>" if o["備註"].strip() else "")
+            + "</div>"
+            for _, o in others.iterrows()
+        )
+        related = (f"<div class='detail-related'><div class='detail-label'>🏠 同地址其他關聯資料（{len(others)} 筆）</div>"
+                   f"{items}</div>")
+    st.markdown(f"<div class='detail'><div class='detail-name'>👤 {esc(row['姓名'])}</div>{body}{related}</div>",
+                unsafe_allow_html=True)
+    col_edit, col_close = st.columns(2)
+    if col_edit.button("✏️ 編輯這筆", key="view_to_edit", type="primary", width="stretch"):
+        open_dialog("editing", {"row": sheet_row, "original": row})
+        st.rerun()
+    if col_close.button("✕ 關閉", key="view_close", width="stretch"):
+        _close_viewer()
+        st.rerun()
 
 
 def _shift_page(delta: int) -> None:

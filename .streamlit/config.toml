@@ -1,0 +1,11 @@
+[server]
+# 讓 static/ 資料夾的圖示可透過 /app/static/... 存取（加入主畫面用的 apple-touch-icon）
+enableStaticServing = true
+
+[theme]
+# 主要按鈕（編輯這筆、儲存、確認新增）改用與米色介面搭配的咖啡色，取代預設紅色
+base = "light"
+primaryColor = "#8A6D3B"
+backgroundColor = "#FAF8F5"
+secondaryBackgroundColor = "#F3EEE6"
+textColor = "#3F3A33"
