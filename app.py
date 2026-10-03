@@ -13,7 +13,7 @@ PAGE_SIZE = 10
 SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 st.set_page_config(
-    page_title="客戶資料管理系統",
+    page_title="資料查詢",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -35,7 +35,41 @@ st.markdown("""
     /* 主內容區：限制最大寬度並加大左右留白，平板直式／橫式皆舒適 */
     [data-testid="stMainBlockContainer"], .block-container {
         max-width: 1400px;
-        padding: 1.6rem 2rem 4rem 2rem;
+        /* 上方留出 Streamlit 固定頂列的高度，標題列與「重新整理」才不會被遮住 */
+        padding: 4.5rem 2rem 4rem 2rem;
+    }
+    /* 標題列：左右兩欄等寬、標題在正中間；「重新整理」靠右，依文字寬度、不被擠壓或截斷 */
+    .st-key-titlebar [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 12px;
+        align-items: center;
+    }
+    .st-key-titlebar [data-testid="stColumn"] {
+        min-width: 0 !important;
+        flex: 1 1 0 !important;
+        width: auto !important;
+    }
+    .st-key-titlebar [data-testid="stColumn"]:nth-child(2) {
+        flex: 0 1 auto !important;
+    }
+    .st-key-titlebar [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {
+        align-items: flex-end;
+    }
+    .app-title { text-align: center; white-space: nowrap; }
+    .st-key-titlebar button {
+        white-space: nowrap;
+        padding: 10px 20px;
+    }
+    /* 搜尋列：限制最大寬度並置中，不要拉滿整個畫面 */
+    .st-key-searchbar {
+        max-width: 760px;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .st-key-searchbar button {
+        white-space: nowrap;
+        padding: 12px 14px;
     }
     label, [data-testid="stWidgetLabel"] p {
         font-size: 19px !important;
@@ -43,11 +77,13 @@ st.markdown("""
         color: #5A4A35;
     }
     .app-title {
-        font-size: 34px;
+        /* 依螢幕寬度自動縮放：手機約 36px、iPad 約 50px、電腦最大 64px */
+        font-size: clamp(36px, 6vw, 64px);
         font-weight: 700;
         color: #5A4A35;
         margin: 0;
-        line-height: 1.3;
+        line-height: 1.25;
+        letter-spacing: 0.08em;
     }
 
     /* ── 輸入框：加高、加大字，方便手指點選 ── */
@@ -78,31 +114,34 @@ st.markdown("""
     .st-key-cards {
         display: grid !important;
         grid-template-columns: minmax(0, 1fr);
-        gap: 22px;
+        gap: 14px;
         margin-top: 8px;
     }
-    @media (min-width: 1100px) {
+    @media (min-width: 1000px) {
         .st-key-cards { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     }
     /* 每張卡片是一個 Streamlit 容器（內含資料與編輯按鈕） */
     [class*="st-key-card_"] {
         background-color: #FFFFFF;
         border: 1px solid #E6E0D5;
-        border-radius: 18px;
-        padding: 28px 30px 22px 30px;
-        box-shadow: 0 3px 10px rgba(90, 74, 53, 0.07);
-        gap: 14px;
+        border-radius: 16px;
+        /* 卡片內距隨螢幕寬度縮放 */
+        padding: clamp(14px, 1.8vw, 20px) clamp(16px, 2vw, 22px);
+        box-shadow: 0 2px 8px rgba(90, 74, 53, 0.07);
+        gap: 8px;
         height: 100%;
+        min-width: 0;
+        overflow: hidden;
     }
     .card {
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding-top: 14px;
+        gap: 6px;
+        padding-top: 10px;
         border-top: 1px solid #EFE8DC;
     }
     .card-title {
-        font-size: 30px;
+        font-size: clamp(20px, 2.2vw, 24px);
         font-weight: 700;
         color: #5A4A35;
         line-height: 1.3;
@@ -122,33 +161,33 @@ st.markdown("""
         width: auto !important;
     }
     [class*="st-key-edit_"] button {
-        min-height: 48px;
-        padding: 6px 18px;
+        min-height: 44px;
+        padding: 4px 14px;
         border-radius: 12px;
         background: #F7F2EA;
         border: 1px solid #D9CCB8;
         white-space: nowrap;
     }
     [class*="st-key-edit_"] button p {
-        font-size: 18px !important;
+        font-size: 16px !important;
     }
     .card-row {
         display: flex;
-        gap: 12px;
-        font-size: 22px;
-        line-height: 1.55;
+        gap: 10px;
+        font-size: clamp(16px, 1.6vw, 18px);
+        line-height: 1.5;
         color: #3F3A33;
     }
     .card-label {
         flex: 0 0 auto;
-        min-width: 4.2em;
+        min-width: 4.4em;
         color: #8A7A63;
         font-weight: 600;
     }
     .card-value {
         flex: 1 1 auto;
         min-width: 0;
-        word-break: break-word;
+        overflow-wrap: anywhere;
     }
     .card-value a, .related a {
         color: #3F3A33;
@@ -157,21 +196,21 @@ st.markdown("""
     }
     .related {
         background-color: #F7F2EA;
-        border-left: 5px solid #C8B79E;
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-top: 6px;
-        font-size: 19px;
-        line-height: 1.6;
+        border-left: 4px solid #C8B79E;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-top: 4px;
+        font-size: clamp(14px, 1.4vw, 16px);
+        line-height: 1.55;
         color: #5A4A35;
         word-break: break-word;
     }
     .related-title {
         font-weight: 700;
-        margin-bottom: 8px;
+        margin-bottom: 4px;
     }
     .related-item {
-        padding: 6px 0;
+        padding: 4px 0;
         border-top: 1px dashed #E0D6C8;
     }
     .related-item:first-of-type { border-top: none; }
@@ -207,17 +246,15 @@ st.markdown("""
     /* ── 手機（640px 以下）：縮小留白與字體，標籤改在內容上方 ── */
     @media (max-width: 640px) {
         [data-testid="stMainBlockContainer"], .block-container {
-            padding: 1rem 0.9rem 3rem 0.9rem;
+            padding: 4rem 0.9rem 3rem 0.9rem;
         }
-        .app-title { font-size: 24px; }
-        [class*="st-key-edit_"] button { padding: 6px 12px; }
-        [class*="st-key-edit_"] button p { font-size: 16px !important; }
-        [class*="st-key-card_"] { padding: 20px 18px 16px 18px; border-radius: 14px; }
-        .card { gap: 12px; }
-        .card-title { font-size: 24px; }
-        .card-row { flex-direction: column; gap: 2px; font-size: 19px; }
-        .card-label { min-width: 0; font-size: 16px; }
-        .related { padding: 12px 14px; font-size: 17px; }
+        .st-key-titlebar button { padding: 8px 12px; }
+        .st-key-titlebar button p { font-size: 16px !important; }
+        [class*="st-key-edit_"] button { padding: 4px 10px; min-height: 40px; }
+        [class*="st-key-edit_"] button p { font-size: 15px !important; }
+        [class*="st-key-card_"] { border-radius: 14px; }
+        .card-row { gap: 8px; }
+        .card-label { min-width: 3.6em; font-size: 14px; padding-top: 2px; }
         .st-key-pager { padding: 10px; }
         .st-key-pager [data-testid="stHorizontalBlock"] { gap: 6px; }
         .st-key-pager button { padding: 10px 6px; }
@@ -511,13 +548,15 @@ def add_dialog(sheet) -> None:
 
 
 def render_search(sheet, df: pd.DataFrame) -> None:
-    col_input, col_btn, col_add = st.columns([5, 1, 1], vertical_alignment="bottom")
+    with st.container(key="searchbar"):
+        col_input, col_btn, col_add = st.columns([5, 1.4, 1.4], vertical_alignment="bottom")
     with col_input:
         # autocomplete="off"：不讓瀏覽器顯示搜尋歷史
         query = st.text_input(
-            "🔍 搜尋",
+            "搜尋",
             placeholder="輸入關鍵字立即尋找...",
             autocomplete="off",
+            label_visibility="collapsed",
         ).strip().lower()
     with col_btn:
         # 點按鈕會讓輸入框失去焦點並送出，平板上不必找鍵盤的 Enter
@@ -591,9 +630,11 @@ def render_pager(pages: int) -> None:
                       disabled=page >= pages, on_click=_shift_page, args=(1,))
 
 
-col_title, col_refresh = st.columns([5, 1], vertical_alignment="center")
-col_title.markdown("<p class='app-title'>📋 客戶資料查詢與管理系統</p>", unsafe_allow_html=True)
-if col_refresh.button("🔄 重新整理", width="stretch"):
+with st.container(key="titlebar"):
+    # 左側空欄與右側「重新整理」等寬，讓標題落在畫面正中間
+    _, col_title, col_refresh = st.columns([1, 2, 1], vertical_alignment="center")
+col_title.markdown("<p class='app-title'>📋 資料查詢</p>", unsafe_allow_html=True)
+if col_refresh.button("🔄 重新整理", width="content"):
     st.rerun()
 
 try:
