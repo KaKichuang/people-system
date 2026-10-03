@@ -52,6 +52,50 @@ st.html(f"""
   inject(document);
   try {{ inject(window.top.document); }} catch (e) {{ /* 外框頁不同網域時無法存取，略過 */ }}
 }})();
+
+// 浮動檢視視窗：按住標題列（姓名那一列）即可拖曳；位置記在 window 上，重新整理畫面或換一筆資料時維持原位
+(function () {{
+  if (window.__peopleFloatDrag) return;
+  window.__peopleFloatDrag = true;
+  const SEL = ".st-key-floatview";
+  let drag = null;
+  function place(el, x, y) {{
+    const r = el.getBoundingClientRect();
+    // 限制在畫面內，至少留住標題列，避免拖出畫面後找不回來
+    x = Math.min(Math.max(x, 0), Math.max(window.innerWidth - r.width, 0));
+    y = Math.min(Math.max(y, 0), Math.max(window.innerHeight - 60, 0));
+    el.style.left = x + "px";
+    el.style.top = y + "px";
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+    window.__peopleFloatPos = {{ x, y }};
+  }}
+  document.addEventListener("pointerdown", (e) => {{
+    const handle = e.target.closest(".float-handle");
+    const el = handle && handle.closest(SEL);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    drag = {{ el, dx: e.clientX - r.left, dy: e.clientY - r.top }};
+    e.preventDefault();
+  }}, true);
+  document.addEventListener("pointermove", (e) => {{
+    if (drag) place(drag.el, e.clientX - drag.dx, e.clientY - drag.dy);
+  }});
+  const stop = () => {{ drag = null; }};
+  document.addEventListener("pointerup", stop);
+  document.addEventListener("pointercancel", stop);
+  // Streamlit 重繪後視窗元素可能被重建，自動套回上次拖曳的位置
+  new MutationObserver(() => {{
+    const el = document.querySelector(SEL);
+    const pos = window.__peopleFloatPos;
+    if (el && pos && el.style.left !== pos.x + "px") place(el, pos.x, pos.y);
+  }}).observe(document.body, {{ childList: true, subtree: true }});
+  window.addEventListener("resize", () => {{
+    const el = document.querySelector(SEL);
+    const pos = window.__peopleFloatPos;
+    if (el && pos) place(el, pos.x, pos.y);
+  }});
+}})();
 </script>
 """, unsafe_allow_javascript=True)
 
@@ -288,17 +332,61 @@ st.markdown("""
         z-index: 2;
     }
 
-    /* ── 放大檢視（彈出視窗）：大字體、標籤在上、內容在下 ── */
-    /* 只隱藏放大檢視視窗的標題列（「詳細資料」），保留右上角 ✕；編輯／新增視窗的標題不受影響 */
-    [role="dialog"]:has(.detail) h2 { display: none !important; }
-    .detail { display: flex; flex-direction: column; gap: 18px; }
+    /* ── 放大檢視（浮動視窗）：不遮住背後畫面，按住標題列可拖曳到任何位置 ── */
+    .st-key-floatview {
+        position: fixed !important;
+        top: 90px;
+        right: 24px;
+        width: min(480px, calc(100vw - 24px)) !important;
+        max-height: calc(100vh - 110px);
+        overflow-y: auto;
+        z-index: 1000;
+        background: #FFFFFF;
+        border: 1px solid #C8B79E;
+        border-radius: 18px;
+        box-shadow: 0 12px 36px rgba(90, 74, 53, 0.28);
+        padding: 14px 18px 18px;
+        gap: 12px;
+    }
+    .st-key-floatview [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 10px;
+        align-items: center;
+    }
+    .st-key-floatview [data-testid="stColumn"] { min-width: 0 !important; }
+    .st-key-floatview [data-testid="stColumn"]:last-child {
+        flex: 0 0 auto !important;
+        width: auto !important;
+    }
+    .st-key-float_close button {
+        min-height: 48px;
+        min-width: 48px;
+        padding: 4px 12px;
+        border-radius: 12px;
+    }
+    .float-handle {
+        cursor: grab;
+        touch-action: none;      /* 觸控拖曳時不要捲動畫面 */
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    .float-handle:active { cursor: grabbing; }
+    .float-grip { font-size: 13px; color: #A8987F; letter-spacing: 0.05em; }
+    @media (max-width: 640px) {
+        .st-key-floatview { top: 70px; right: 12px; padding: 12px 14px 14px; }
+    }
+    .detail {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding-top: 12px;
+        border-top: 2px solid #EFE8DC;
+    }
     .detail-name {
-        font-size: clamp(28px, 5vw, 38px);
+        font-size: clamp(24px, 4vw, 32px);
         font-weight: 700;
         color: #5A4A35;
         line-height: 1.3;
-        padding: 8px 40px 12px 0;   /* 右側讓出空間給 ✕，長姓名不會壓到 */
-        border-bottom: 2px solid #EFE8DC;
         overflow-wrap: anywhere;
     }
     .detail-field { display: flex; flex-direction: column; gap: 4px; }
@@ -728,13 +816,13 @@ def render_search(sheet, df: pd.DataFrame) -> None:
     if pages > 1:
         render_pager(pages)
 
-    # 同一時間只開一個對話框
+    # 同一時間只開一個視窗（浮動檢視或編輯對話框）
     viewing = st.session_state.get("viewing")
     editing = st.session_state.get("editing")
     if viewing is not None and viewing in df.index:
         key = addr_key[viewing]
         others = df[(addr_key == key) & (df.index != viewing)] if key else df.iloc[0:0]
-        view_dialog(viewing, df.loc[viewing].to_dict(), others)
+        render_viewer(viewing, df.loc[viewing].to_dict(), others)
     elif editing and not st.session_state.get("adding"):
         edit_dialog(sheet, editing["row"], editing["original"])
 
@@ -753,8 +841,20 @@ def _close_viewer() -> None:
     st.session_state.pop("viewing", None)
 
 
-@st.dialog("📇 詳細資料", width="large", on_dismiss=_close_viewer)
-def view_dialog(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
+def render_viewer(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
+    """放大檢視：可拖曳的浮動視窗（不遮住背後畫面，可邊看邊捲動、點其他卡片直接換一筆）。"""
+    with st.container(key="floatview"):
+        col_name, col_close = st.columns([5, 1], vertical_alignment="center")
+        col_name.markdown(
+            f"<div class='float-handle'><div class='float-grip'>⠿ 按住此列可拖曳</div>"
+            f"<div class='detail-name'>👤 {esc(row['姓名'])}</div></div>",
+            unsafe_allow_html=True,
+        )
+        col_close.button("✕", key="float_close", help="關閉", on_click=_close_viewer)
+        render_detail(sheet_row, row, others)
+
+
+def render_detail(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
     fields = [("📞 電話", phone_html(row["電話"])), ("📍 地址", esc(row["地址"])), ("📝 備註", esc(row["備註"]))]
     body = "".join(
         f"<div class='detail-field'><div class='detail-label'>{label}</div>"
@@ -771,15 +871,10 @@ def view_dialog(sheet_row: int, row: dict, others: pd.DataFrame) -> None:
         )
         related = (f"<div class='detail-related'><div class='detail-label'>🏠 同地址其他關聯資料（{len(others)} 筆）</div>"
                    f"{items}</div>")
-    st.markdown(f"<div class='detail'><div class='detail-name'>👤 {esc(row['姓名'])}</div>{body}{related}</div>",
-                unsafe_allow_html=True)
-    col_edit, col_close = st.columns(2)
-    if col_edit.button("✏️ 編輯這筆", key="view_to_edit", type="primary", width="stretch"):
-        open_dialog("editing", {"row": sheet_row, "original": row})
-        st.rerun()
-    if col_close.button("✕ 關閉", key="view_close", width="stretch"):
-        _close_viewer()
-        st.rerun()
+    st.markdown(f"<div class='detail'>{body}{related}</div>", unsafe_allow_html=True)
+    # 用 on_click 回呼：在本次重繪前就切換狀態，浮動視窗關閉、編輯對話框同一次打開
+    st.button("✏️ 編輯這筆", key="view_to_edit", type="primary", width="stretch",
+              on_click=open_dialog, args=("editing", {"row": sheet_row, "original": row}))
 
 
 def _shift_page(delta: int) -> None:
